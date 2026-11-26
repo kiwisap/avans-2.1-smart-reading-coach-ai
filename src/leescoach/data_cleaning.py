@@ -53,7 +53,7 @@ class CleanData:
 
 def slug(value: object) -> str:
     """Same normalisation as buildKey in the Fastify app (normalizeRow.ts)."""
-    text = "" if value is None or (isinstance(value, float) and np.isnan(value)) else str(value)
+    text = "" if value is None or pd.isna(value) else str(value)
     text = unicodedata.normalize("NFD", text.strip().lower())
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
@@ -150,11 +150,13 @@ def clean_materials(raw: pd.DataFrame, report: CleaningReport | None = None) -> 
     df["type"] = mapped.map(lambda value: value[0] if value else pd.NA)
     df["subgenre"] = mapped.map(lambda value: value[1] if value else pd.NA)
     pages = to_number(df["aantal_paginas"])
+    # A missing type becomes "boek", exactly like the catalog import of the Fastify app, so the
+    # catalog keys of the model and the app stay the same.
     missing_type = df["type"].isna()
-    df.loc[missing_type, "type"] = np.where(pages[missing_type].fillna(0) >= 50, "boek", "online-artikel")
+    df.loc[missing_type, "type"] = "boek"
     report.add(
         f"Type materiaal genormaliseerd naar {len(config.APP_MATERIAL_TYPES)} app types, "
-        f"{int(missing_type.sum())} ontbrekend type afgeleid uit het aantal pagina's"
+        f"{int(missing_type.sum())} ontbrekend type wordt 'boek' (zoals de import van de app)"
     )
 
     # Genre: use the duplicate column first, then derive it from the type.

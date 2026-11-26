@@ -1,0 +1,10 @@
+# The AI service on its own: docker compose up -d --build
+# The model is trained while the image is built, from data/raw/leescatalogus_recommender.xlsx.
+# AI_API_KEY comes from .env in this folder and must be the same as in the backend .env.
+services:
+    ai:
+        build: .
+        environment:
+            AI_API_KEY: ${AI_API_KEY:-}
+        ports:
+            - '8000:8000'

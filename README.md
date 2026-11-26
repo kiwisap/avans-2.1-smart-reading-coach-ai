@@ -49,6 +49,9 @@ smart-reading-coach-ai/
     train.py              alles in een keer: opschonen, evalueren, trainen, opslaan
   api/                    FastAPI service voor de koppeling met Fastify
   tests/                  pytest tests voor cleaning, model en API
+  docs/
+    ai-verantwoording.md  probleem, is AI nodig, AI Act, privacy en ethiek
+    koppeling-fastify.md  hoe de Fastify backend het model aanroept
 ```
 
 ## Installeren
@@ -63,7 +66,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Zet de dataset van Brightspace in `data/raw/leescatalogus_recommender.xlsx`.
+Zet de dataset van Brightspace in `data/raw/leescatalogus_recommender.xlsx` (staat er al als je deze map net hebt gekregen).
 De map `data/` staat in `.gitignore`: de data van de opdrachtgever komt niet op GitHub.
 
 ## Gebruiken
@@ -84,6 +87,47 @@ uvicorn api.main:app --reload --port 8000
 
 `python -m leescoach.train` schoont de data op, evalueert alle methoden, traint het eindmodel en schrijft
 `models/hybride_model.joblib` en `models/metrics.json`. De API documentatie staat daarna op `http://localhost:8000/docs`.
+
+## Draaien met Docker
+
+De service bouwt en draait zichzelf, los van de backend. Het model wordt getraind terwijl de image gebouwd wordt, uit
+`data/raw/leescatalogus_recommender.xlsx`.
+
+```bash
+copy .env.example .env            # zet AI_API_KEY op dezelfde waarde als in de .env van de backend
+docker compose up -d --build      # de service draait op http://localhost:8000
+```
+
+Zet in de `.env` van de backend `AI_SERVICE_URL=http://localhost:8000`. Na een wijziging in de code of de data:
+`docker compose up -d --build` opnieuw.
+
+## Deployen op Render
+
+De service is een eigen Render web service (Docker), beschreven in `render.yaml`. De dataset staat niet op GitHub. Render
+krijgt hem als **secret file**: een privé bestand dat alleen bij deze service hoort. Secret files moeten tekst zijn en
+mogen samen maximaal 1 MB zijn, daarom gaat de xlsx er als base64 tekst in (ongeveer 280 KB). De `Dockerfile` zet die
+tijdens het bouwen terug naar xlsx, traint het model en verwijdert de ruwe dataset weer uit de image.
+
+1. **Base64 bestand maken** (PowerShell, in deze map). Het bestand komt in `data/raw` en staat dus niet in git:
+   ```powershell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\data\raw\leescatalogus_recommender.xlsx")) | Set-Content -NoNewline data\raw\leescatalogus_recommender.xlsx.b64
+   ```
+2. **Render.** Kies New, Blueprint en koppel deze repository. Render maakt de service `smart-reading-coach-ai` en een
+   willekeurige `AI_API_KEY`. De eerste build mislukt nog, want de dataset ontbreekt.
+3. **Secret file.** Open de service, Environment, Secret Files, Add file. Naam: `leescatalogus_recommender.xlsx.b64`.
+   Plak de inhoud van het bestand uit stap 1 en kies *Save, rebuild and deploy*.
+4. **Deploy hook en API key.** Kopieer onder Settings de Deploy Hook URL. Een Render API key heb je al van de backend.
+5. **GitHub.** Maak in deze repository onder Settings, Environments een environment `production` met de secrets
+   `RENDER_DEPLOY_HOOK_URL` en `RENDER_API_KEY` en de variabele `AI_URL` (bijvoorbeeld
+   `https://smart-reading-coach-ai.onrender.com`).
+6. **Backend koppelen.** Zet in de Render service van de backend `AI_SERVICE_URL` op het adres van deze service en
+   `AI_API_KEY` op dezelfde waarde als hier (Environment, het oogje bij `AI_API_KEY`).
+
+Elke push naar `main` draait daarna de tests, bouwt de image en zet hem live via de deploy hook. Een nieuwe dataset?
+Maak stap 1 opnieuw en vervang de secret file.
+
+Gratis services slapen na 15 minuten. De backend stuurt bij het opstarten een ping om deze service te wekken; zolang hij
+nog slaapt, geven de regels van de backend het advies.
 
 ## Het model
 
@@ -157,5 +201,4 @@ om alleen de backend toegang te geven (header `X-API-Key`). Zie [docs/koppeling-
 * Er is weinig Engels materiaal; drie studenten willen Engels lezen. Het model zegt dat eerlijk in de uitleg.
 * Mogelijke verbeteringen: meertalige sentence embeddings in plaats van TF-IDF met synoniemen, een taalmodel dat de uitleg
   vloeiender maakt (de feiten blijven uit het model komen), feedback knop *"past niet bij mij"* in de app.
-* Deployment: de service kan net als de andere twee repos op Render draaien. Het modelbestand moet dan in de build zitten
-  (bijvoorbeeld door de training in de build stap uit te voeren).
+* Het gratis Render plan heeft weinig rekenkracht: een advies duurt daar langer dan lokaal.

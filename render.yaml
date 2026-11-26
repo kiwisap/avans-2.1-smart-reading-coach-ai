@@ -1,0 +1,18 @@
+# Render Blueprint of the AI service. Free plan: the service sleeps after 15 minutes without
+# traffic; the backend wakes it up when it starts and uses the rules while it is still asleep.
+services:
+    - type: web
+      runtime: docker
+      name: smart-reading-coach-ai
+      plan: free
+      dockerfilePath: ./Dockerfile
+      healthCheckPath: /api/health
+      # The GitHub Actions pipeline starts every deploy (deploy hook), after the checks are green.
+      autoDeployTrigger: off
+      envVars:
+          # Shared secret with the backend (header X-API-Key). Copy the generated value into
+          # AI_API_KEY of the backend service.
+          - key: AI_API_KEY
+            generateValue: true
+      # Not in this file: the secret file "leescatalogus_recommender.xlsx.b64" (the dataset as
+      # base64 text). Add it in the dashboard under Environment, Secret Files (see the README).

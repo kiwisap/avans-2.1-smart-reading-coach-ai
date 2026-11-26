@@ -41,3 +41,7 @@ def test_clean_materials_has_valid_values(data) -> None:
 def test_interactions_point_to_existing_materials(data) -> None:
     assert data.interactions["cataloguscode"].isin(data.materials["cataloguscode"]).all()
     assert set(data.interactions["positief"].unique()) <= {0, 1}
+
+
+def test_missing_author_gives_empty_key_part() -> None:
+    assert build_app_key("Libello voor mannen", pd.NA, "tijdschrift") == "libello voor mannen||tijdschrift"
