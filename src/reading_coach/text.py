@@ -1,7 +1,9 @@
-"""Dutch text preprocessing (workshop 05 NLP): cleaning, tokenisation, stopwords and stemming.
+"""Dutch text preprocessing (workshop NLP): cleaning, tokenising, stopwords and stemming.
 
-The Dutch stopword list is included here so no NLTK download is needed. The Snowball
-stemmer for Dutch ships with NLTK itself and works offline.
+The stopword list is a general Dutch list, included here so no NLTK download is needed. Words
+that are common in this particular catalog ('boek', 'verhaal') are not listed by hand: the
+TF-IDF vectorizer drops words that occur in a large part of the documents (max_df), so that
+keeps working when the catalog changes. The Snowball stemmer for Dutch ships with NLTK.
 """
 
 from __future__ import annotations
@@ -11,17 +13,14 @@ from functools import lru_cache
 
 from nltk.stem.snowball import SnowballStemmer
 
-from .config import INTEREST_SYNONYMS
-
 DUTCH_STOPWORDS: frozenset[str] = frozenset(
     """
     aan al alle alles als altijd andere ben bij daar dan dat de der deze die dit doch doen door dus een
     eens en er ge geen geweest haar had heb hebben heeft hem het hier hij hoe hun iemand iets ik in is ja
     je kan kon kunnen maar me meer men met mij mijn moet na naar niet niets nog nu of om omdat onder ons
     ook op over reeds te tegen toch toen tot u uit uw van veel voor want waren was wat werd wezen wie wil
-    worden wordt zal ze zelf zich zij zijn zo zonder zou hun hen waarin welke wel binnen tussen vaak
-    steeds komt komen gaat maken laat staan staat elkaar twee eigen echter tijdens vanuit waarbij
-    verhaal verhalen boek boeken artikel artikelen centraal herkenbare herkenbaar toegankelijk toegankelijke
+    worden wordt zal ze zelf zich zij zijn zo zonder zou hen waarin welke wel binnen tussen vaak steeds
+    komt komen gaat maken laat staan staat elkaar twee eigen echter tijdens vanuit waarbij
     """.split()
 )
 
@@ -34,7 +33,7 @@ def _stemmer() -> SnowballStemmer:
 
 
 def normalize(text: str) -> str:
-    """Lowercase, remove numbers and punctuation (keeps letters with accents)."""
+    """Lowercase, without numbers and punctuation (letters with accents stay)."""
     text = text.lower()
     text = re.sub(r"\d+", " ", text)
     text = re.sub(r"[^\w\s]", " ", text)
@@ -55,17 +54,20 @@ def stem(tokens: list[str]) -> list[str]:
 
 
 def preprocess(text: str) -> str:
-    """Full pipeline used by the vectorizers: normalise, tokenise, drop stopwords, stem."""
+    """The whole pipeline the vectorizers use: normalise, tokenise, drop stopwords, stem."""
     return " ".join(stem(remove_stopwords(tokenize(text or ""))))
 
 
-def expand_interests(interests: list[str]) -> str:
-    """Interests plus their synonyms as one text, so 'kunstmatige intelligentie' also matches 'AI'."""
-    words: list[str] = []
-    for interest in interests:
-        interest = interest.strip().lower()
-        if not interest:
-            continue
-        words.append(interest)
-        words.extend(INTEREST_SYNONYMS.get(interest, []))
-    return " ".join(words)
+def stems_of(text: str) -> set[str]:
+    return set(preprocess(text).split())
+
+
+def stems_overlap(first: set[str], second: set[str], min_prefix: int = 5) -> bool:
+    """True when two sets of stems share a stem, or two stems start with the same five letters.
+
+    The Snowball stemmer keeps 'spanning' and 'spannend' apart; the shared start catches that.
+    """
+    if first & second:
+        return True
+    prefixes = {word[:min_prefix] for word in first if len(word) >= min_prefix}
+    return any(word[:min_prefix] in prefixes for word in second if len(word) >= min_prefix)

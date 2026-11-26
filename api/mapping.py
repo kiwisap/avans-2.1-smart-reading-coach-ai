@@ -1,55 +1,74 @@
-"""Maps the app profile and reading list to the model input, and model output back to JSON."""
+"""Maps the profile and reading list of the app to the model input, and the advice back to JSON.
+
+The mappings below translate the words of the app into the words of the model. They are part
+of the contract between the two, not of the catalog: which genres and types exist still comes
+from the data, and a value the model does not know simply counts as 'no preference'.
+"""
 
 from __future__ import annotations
 
-from leescoach import config
-from leescoach.features import FEATURE_LABELS, StudentProfile
-from leescoach.hybrid import HybridRecommender, Recommendation
+from reading_coach.features import FEATURE_LABELS, StudentProfile
+from reading_coach.hybrid import HybridRecommender, Recommendation
 
 from .schemas import HistoryItem, Profile, RecommendationOut
 
-# The app reading list only knows 'unread' (saved) and 'read'.
+# The reading list of the app knows 'unread' (saved for later) and 'read'. These are the
+# interaction types in the dataset that mean the same.
 STATUS_TO_INTERACTION = {"unread": "opgeslagen", "read": "gelezen"}
 
+# How long a text may take, per answer in the reading profile. None means no limit.
+DESIRED_LENGTH_TO_MINUTES: dict[str, int | None] = {"short": 20, "medium": 90, "long": None}
 
-def to_student_profile(profile: Profile) -> StudentProfile:
-    types = list(dict.fromkeys(profile.materialTypes)) or list(config.APP_MATERIAL_TYPES)
+# The reading goal of the app points to the kind of text that suits it: reading for fun
+# fits stories, learning and work fit informative texts. For language practice anything goes.
+READING_GOAL_TO_GENRE: dict[str, str | None] = {
+    "enjoyment": "fictie",
+    "learn": "informatief",
+    "language": None,
+    "work": "informatief",
+}
+
+
+def to_student_profile(profile: Profile, model: HybridRecommender) -> StudentProfile:
+    vocabulary = model.vocabulary
+    types = [kind for kind in dict.fromkeys(profile.materialTypes) if kind in vocabulary.types]
+    genre = READING_GOAL_TO_GENRE.get(profile.readingGoal)
     return StudentProfile(
-        leesniveau=profile.languageLevel,
-        interesses=[topic.strip().lower() for topic in profile.topics if topic.strip()],
-        materiaaltypes=types,
-        voorkeur_genre=config.READING_GOAL_TO_GENRE[profile.readingGoal],
-        max_leestijd_min=config.DESIRED_LENGTH_TO_MINUTES[profile.desiredLength],
-        voorkeur_taal=profile.language,
+        reading_level=profile.languageLevel,
+        interests=[topic.strip().lower() for topic in profile.topics if topic.strip()],
+        material_types=types,
+        preferred_genre=genre if genre in vocabulary.genres else None,
+        max_minutes=DESIRED_LENGTH_TO_MINUTES[profile.desiredLength],
+        preferred_language=profile.language or vocabulary.default_language,
     )
 
 
 def to_history(items: list[HistoryItem], model: HybridRecommender) -> dict[str, float]:
-    """Preference score per cataloguscode, the same scale (1 to 5) as used during training."""
-    code_by_key = dict(zip(model.materials["key"], model.materials["cataloguscode"]))
+    """Preference score per catalog code, on the same scale (1 to 5) as during training."""
+    code_by_key = dict(zip(model.materials["key"], model.materials["catalog_code"]))
     history: dict[str, float] = {}
     for item in items:
-        code = item.cataloguscode if item.cataloguscode in model.content.index else code_by_key.get(item.key or "")
+        code = item.catalogCode if item.catalogCode in model.content.index else code_by_key.get(item.key or "")
         if not code:
             continue
         interaction = STATUS_TO_INTERACTION.get(item.status, item.status)
-        type_score = config.INTERACTION_SCORE[interaction]
+        type_score = model.vocabulary.interaction_score(interaction)
         history[code] = (type_score + item.rating) / 2 if item.rating else type_score
     return history
 
 
 def to_output(recommendation: Recommendation) -> RecommendationOut:
     return RecommendationOut(
-        cataloguscode=recommendation.cataloguscode,
+        catalogCode=recommendation.catalog_code,
         key=recommendation.key,
-        title=recommendation.titel,
-        author=recommendation.auteur,
+        title=recommendation.title,
+        author=recommendation.author,
         type=recommendation.type,
         genre=recommendation.genre,
-        level=recommendation.niveau,
+        level=recommendation.level,
         score=recommendation.score,
-        reasons=recommendation.redenen,
-        summary=recommendation.samenvatting,
+        reasons=recommendation.reasons,
+        motivation=recommendation.motivation,
     )
 
 

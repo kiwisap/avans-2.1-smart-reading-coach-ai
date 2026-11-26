@@ -1,10 +1,17 @@
 # The AI service on its own: docker compose up -d --build
 # The model is trained while the image is built, from data/raw/leescatalogus_recommender.xlsx.
 # AI_API_KEY comes from .env in this folder and must be the same as in the backend .env.
+# With MONGO_URL (for example mongodb://host.docker.internal:27017) the service trains again on the
+# catalog the backend imported, right after it starts.
 services:
     ai:
         build: .
         environment:
             AI_API_KEY: ${AI_API_KEY:-}
+            MONGO_URL: ${MONGO_URL:-}
+            MONGO_DB: ${MONGO_DB:-smart_reading_coach_files}
+            TRAIN_ON_START: ${TRAIN_ON_START:-true}
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         ports:
             - '8000:8000'

@@ -12,7 +12,8 @@ FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NLTK_DATA=/usr/local/share/nltk_data
 
 WORKDIR /app
 
@@ -21,6 +22,9 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install -e ".[api]"
 
+# The Open Multilingual Wordnet, where the synonyms are learned from (about 40 MB)
+RUN python -m reading_coach.synonyms "$NLTK_DATA"
+
 COPY api ./api
 COPY data/raw ./data/raw
 
@@ -28,13 +32,15 @@ COPY data/raw ./data/raw
 FROM base AS runtime
 
 # Decode the dataset from the secret file when it is there, train, then remove the raw dataset
-# from the image. Only the cleaned data and the model stay behind.
+# from the image. Only the cleaned data and the model stay behind. The build has no access to
+# MongoDB, so this model uses the catalog sheet of the xlsx; when the service starts it trains
+# again on the catalog the backend imported in MongoDB (see api/training.py).
 RUN --mount=type=secret,id=leescatalogus_recommender_xlsx_b64,dst=/run/secrets/dataset.b64 \
     if [ -s /run/secrets/dataset.b64 ]; then \
         base64 --decode --ignore-garbage /run/secrets/dataset.b64 > data/raw/leescatalogus_recommender.xlsx; \
     fi \
     && test -s data/raw/leescatalogus_recommender.xlsx \
-    && python -m leescoach.train --skip-evaluation \
+    && python -m reading_coach.train --skip-evaluation --catalog xlsx \
     && rm -f data/raw/leescatalogus_recommender.xlsx
 
 # Do not run as root
