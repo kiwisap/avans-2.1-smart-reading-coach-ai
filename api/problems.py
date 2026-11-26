@@ -16,6 +16,7 @@ TITLES = {
     401: "Niet geautoriseerd",
     404: "Niet gevonden",
     405: "Methode niet toegestaan",
+    409: "Al bezig",
     422: "Ongeldige invoer",
     500: "Interne fout",
     503: "Dienst niet beschikbaar",

@@ -14,5 +14,11 @@ services:
           # AI_API_KEY of the backend service.
           - key: AI_API_KEY
             generateValue: true
+          # The same MongoDB as the backend (MongoDB Atlas): the catalog is read from it and the
+          # learned synonyms are written to it. Fill in the value in the dashboard.
+          - key: MONGO_URL
+            sync: false
+          - key: MONGO_DB
+            value: smart_reading_coach_files
       # Not in this file: the secret file "leescatalogus_recommender.xlsx.b64" (the dataset as
       # base64 text). Add it in the dashboard under Environment, Secret Files (see the README).

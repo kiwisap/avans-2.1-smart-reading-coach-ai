@@ -35,6 +35,9 @@ jobs:
             - name: Install dependencies
               run: pip install -e ".[api,dev]"
 
+            - name: Install the wordnet data for the synonyms
+              run: python -m reading_coach.synonyms
+
             # Tests that need the dataset are skipped automatically (see tests/conftest.py).
             - name: Unit tests
               run: python -m pytest -q -rs

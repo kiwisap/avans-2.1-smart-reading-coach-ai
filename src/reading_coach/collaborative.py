@@ -13,17 +13,17 @@ import pandas as pd
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics.pairwise import cosine_similarity
 
-NEUTRAL_SCORE = 3.0
+from .config import NEUTRAL_SCORE
 
 
 def user_item_matrix(
     interactions: pd.DataFrame,
     codes: list[str],
     students: list[str],
-    value_column: str = "voorkeurscore",
+    value_column: str = "preference_score",
 ) -> pd.DataFrame:
     """Students as rows, materials as columns, centred preference as value and 0 when unknown."""
-    pivot = interactions.pivot_table(index="student_id", columns="cataloguscode", values=value_column, aggfunc="mean")
+    pivot = interactions.pivot_table(index="student_id", columns="catalog_code", values=value_column, aggfunc="mean")
     pivot = pivot.reindex(index=students, columns=codes)
     return (pivot - NEUTRAL_SCORE).fillna(0.0)
 
@@ -107,7 +107,7 @@ class SVDRecommender:
 
 def popularity(interactions: pd.DataFrame, codes: list[str], smoothing: float = 5.0) -> pd.Series:
     """Share of positive interactions per material, smoothed towards the overall mean for rare items."""
-    prior = interactions["positief"].mean()
-    stats = interactions.groupby("cataloguscode")["positief"].agg(["sum", "count"])
+    prior = interactions["positive"].mean()
+    stats = interactions.groupby("catalog_code")["positive"].agg(["sum", "count"])
     smoothed = (stats["sum"] + smoothing * prior) / (stats["count"] + smoothing)
     return smoothed.reindex(codes).fillna(prior)
