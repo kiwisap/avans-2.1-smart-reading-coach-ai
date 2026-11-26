@@ -1,0 +1,91 @@
+name: CI/CD
+
+# Every push and pull request is checked. A push to the main branch is deployed to Render
+# after all checks are green. The client dataset is not in this repository, so the checks run
+# the tests that do not need it and build the image up to the training step.
+on:
+    pull_request:
+    push:
+        branches: [master]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    check:
+        name: Test and build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+                  cache: pip
+
+            - name: Install dependencies
+              run: pip install -e ".[api,dev]"
+
+            # Tests that need the dataset are skipped automatically (see tests/conftest.py).
+            - name: Unit tests
+              run: python -m pytest -q -rs
+
+            # Catches a broken Dockerfile or dependency before it reaches Render.
+            - name: Build the Docker image (without training)
+              run: docker build --target base --tag smart-reading-coach-ai:check .
+
+    deploy:
+        name: Deploy to Render
+        needs: [check]
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        runs-on: ubuntu-latest
+        environment: production
+        env:
+            # Secret URL of the deploy hook of the Render service (Render: Settings > Deploy Hook).
+            DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+            # Render API key (Account settings > API Keys), only used to read the status of the deploy.
+            RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+            AI_URL: ${{ vars.AI_URL }}
+        steps:
+            - name: Start the deploy
+              run: |
+                  RESPONSE=$(curl --fail --silent --show-error --request POST \
+                      "${DEPLOY_HOOK_URL}&ref=${GITHUB_SHA}")
+                  echo "$RESPONSE"
+                  echo "DEPLOY_ID=$(echo "$RESPONSE" | jq --raw-output '.deploy.id')" >> "$GITHUB_ENV"
+                  echo "SERVICE_ID=$(echo "$DEPLOY_HOOK_URL" | sed -E 's#.*/deploy/(srv-[^?]+).*#\1#')" >> "$GITHUB_ENV"
+
+            # Training happens in the build, so a deploy takes a few minutes.
+            - name: Wait for the deploy
+              run: |
+                  for attempt in $(seq 1 80); do
+                      STATUS=$(curl --fail --silent --show-error \
+                          --header "Authorization: Bearer $RENDER_API_KEY" \
+                          "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID" \
+                          | jq --raw-output '.status')
+                      echo "Deploy status: $STATUS"
+                      case "$STATUS" in
+                          live) exit 0 ;;
+                          build_failed | update_failed | pre_deploy_failed | canceled | deactivated) exit 1 ;;
+                      esac
+                      sleep 15
+                  done
+                  echo "The deploy took longer than 20 minutes" && exit 1
+
+            # The service must answer and have a trained model.
+            - name: Smoke test
+              run: |
+                  echo "Checking ${AI_URL}/api/health"
+                  BODY=$(curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors \
+                      "${AI_URL}/api/health")
+                  echo "$BODY"
+                  test "$(echo "$BODY" | jq --raw-output '.status')" = "ok"
